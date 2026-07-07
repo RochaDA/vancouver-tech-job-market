@@ -1,0 +1,20 @@
+name: tech-jobs
+channels:
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.11
+  - pandas>=2.0
+  - requests>=2.31
+  - matplotlib>=3.8
+  - seaborn>=0.13
+  - jupyter>=1.0
+  - scikit-learn>=1.4
+  - statsmodels>=0.14
+  - spacy>=3.7
+
+  # pip-only packages (not reliably on conda-forge, or need latest versions)
+  - pip
+  - pip:
+      - prophet>=1.1
+      - sentence-transformers>=2.2
