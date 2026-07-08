@@ -16,7 +16,7 @@ Vancouver, using Job Bank Canada's open postings data.
 
 ```bash
 conda env create -f environment.yml
-conda activate tech-jobs
+conda activate vancouver-tech-jobs
 ```
 
 To update the environment later after adding a dependency to `environment.yml`:
@@ -28,18 +28,37 @@ conda env update -f environment.yml --prune
 
 ## Building the dataset
 
-1. Open the [dataset page](https://open.canada.ca/data/en/dataset/ea639e28-c0fc-48bf-b5dd-b8899bd43072)
-   and copy the CSV link for each month you want.
-2. Paste those URLs into `DIRECT_URLS` in `config.py`.
-3. Run the pipeline:
+URLs are auto-discovered from the dataset's CKAN API — no manual copy-pasting
+needed. Just set how many recent months you want in `config.py`:
+
+```python
+MONTHS_TO_FETCH: int = 24
+```
+
+Then run the pipeline:
 
 ```bash
 python -m src.data.build_dataset
 ```
 
-This downloads each month, caches the raw combined file in `data/raw/`,
-filters to tech-related NOC codes + Metro Vancouver locations, and saves
-the result to `data/processed/vancouver_tech_postings.csv`.
+This calls the [CKAN API](https://open.canada.ca/data/api/action/package_show?id=ea639e28-c0fc-48bf-b5dd-b8899bd43072)
+to find the most recent English-language CSV files, downloads each month,
+caches the raw combined file in `data/raw/`, filters to tech-related NOC
+codes + Metro Vancouver locations, and saves the result to
+`data/processed/vancouver_tech_postings.csv`.
+
+If you ever need to pin specific files instead (e.g. auto-discovery misses
+a month), populate `DIRECT_URLS` in `config.py` — it takes priority over
+`MONTHS_TO_FETCH` when non-empty.
+
+### Known data limitation
+
+A small share of Job Bank postings have no `City`, `Economic Region`, or
+postal code at all — only a coarse `Province/Territory`. There's no way to
+confirm whether these are in Metro Vancouver specifically (vs. Victoria,
+Kelowna, etc. within BC), so they're excluded from the filtered dataset
+rather than guessed at. The pipeline prints how many tech-NOC postings this
+affects each run, so the gap is visible rather than silent.
 
 ## Project structure
 
