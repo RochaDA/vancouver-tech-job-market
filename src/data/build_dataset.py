@@ -19,6 +19,25 @@ from config import (
 from src.data.download import discover_monthly_urls, load_all
 
 
+def parse_mixed_dates(series: pd.Series) -> pd.Series:
+    """Parse a date column that mixes yyyy-mm-dd and yyyy/mm/dd formats.
+
+    Job Bank's exports aren't consistent about date format across months —
+    letting pandas auto-infer the format silently turns some valid dates
+    into NaT instead of raising, which quietly shrinks your date range
+    without any error. Trying each known format explicitly avoids that.
+    """
+    parsed = pd.to_datetime(series, format="%Y-%m-%d", errors="coerce")
+
+    still_missing = parsed.isna()
+    if still_missing.any():
+        parsed.loc[still_missing] = pd.to_datetime(
+            series[still_missing], format="%Y/%m/%d", errors="coerce"
+        )
+
+    return parsed
+
+
 def filter_tech_vancouver(df: pd.DataFrame) -> pd.DataFrame:
     """Return only rows that are both a tech NOC code and a Metro Vancouver location.
 
@@ -27,7 +46,7 @@ def filter_tech_vancouver(df: pd.DataFrame) -> pd.DataFrame:
     There's no way to attribute these to Metro Vancouver specifically (vs.
     Victoria, Kelowna, etc. within BC), so they are excluded rather than
     guessed at. This function reports how many tech-NOC rows were dropped
-    for this reason so the gap is visible.
+    for this reason so the gap is visible, not silent.
 
     Note: matching on City name alone isn't safe on its own — some names
     aren't unique to BC (e.g. Richmond, Quebec; Delta, Ontario), so we also
@@ -84,7 +103,18 @@ def filter_tech_vancouver(df: pd.DataFrame) -> pd.DataFrame:
             f"Examples:\n{offending.drop_duplicates().head()}"
         )
 
-    return df[is_tech & is_van_city & is_bc].copy()
+    filtered = df[is_tech & is_van_city & is_bc].copy()
+
+    # Parse First Posting Date, handling the mixed yyyy-mm-dd / yyyy/mm/dd
+    # formats present in the raw exports.
+    DATE_COL = "First Posting Date"
+    if DATE_COL in filtered.columns:
+        filtered[DATE_COL] = parse_mixed_dates(filtered[DATE_COL])
+        unparseable = filtered[DATE_COL].isna().sum()
+        if unparseable:
+            print(f"Note: {unparseable:,} rows have an unparseable {DATE_COL}.")
+
+    return filtered
 
 
 if __name__ == "__main__":
