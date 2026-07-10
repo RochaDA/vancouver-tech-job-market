@@ -6,6 +6,7 @@ Vancouver, cleans it, and saves the analysis-ready CSV. Run this file
 directly to execute the full pipeline (download -> filter -> save).
 """
 
+import numpy as np
 import pandas as pd
 
 from config import (
@@ -17,6 +18,53 @@ from config import (
     TECH_NOC_CODES,
 )
 from src.data.download import discover_monthly_urls, load_all
+
+# Weekly hours can't realistically exceed ~80 (even generous overtime).
+# Values above this in Hours Minimum/Maximum are almost certainly monthly
+# hours entered into a field meant for weekly hours (176 ≈ a standard
+# full-time month: ~22 workdays x 8 hours), and are treated as unusable
+# rather than trusted at face value.
+MAX_PLAUSIBLE_WEEKLY_HOURS = 80
+
+# Standard full-time work week in Canada, used as the fallback when hourly
+# postings don't specify (usable) weekly hours.
+DEFAULT_WEEKLY_HOURS = 37.5
+
+
+def to_annual(row: pd.Series, salary_col: str) -> float:
+    """Convert a single salary value to an annualized figure based on the
+    row's Salary Per unit.
+
+    Handles Year/Month/Week/Bi-weekly directly. For Hour, multiplies by
+    weekly hours x 52 — using Hours Maximum/Minimum if they're populated
+    AND plausible for a week (see MAX_PLAUSIBLE_WEEKLY_HOURS), otherwise
+    falling back to a standard full-time default.
+    """
+    val = row[salary_col]
+    per = row["Salary Per"]
+    if pd.isna(val) or pd.isna(per):
+        return np.nan
+
+    if per == "Year":
+        return val
+    elif per == "Month":
+        return val * 12
+    elif per == "Week":
+        return val * 52
+    elif per == "Bi-weekly":
+        return val * 26
+    elif per == "Hour":
+        hours_max = row.get("Hours Maximum")
+        hours_min = row.get("Hours Minimum")
+        if pd.notna(hours_max) and hours_max <= MAX_PLAUSIBLE_WEEKLY_HOURS:
+            hours_per_week = hours_max
+        elif pd.notna(hours_min) and hours_min <= MAX_PLAUSIBLE_WEEKLY_HOURS:
+            hours_per_week = hours_min
+        else:
+            hours_per_week = DEFAULT_WEEKLY_HOURS
+        return val * hours_per_week * 52
+    else:
+        return np.nan
 
 
 def parse_mixed_dates(series: pd.Series) -> pd.Series:
@@ -113,6 +161,14 @@ def filter_tech_vancouver(df: pd.DataFrame) -> pd.DataFrame:
         unparseable = filtered[DATE_COL].isna().sum()
         if unparseable:
             print(f"Note: {unparseable:,} rows have an unparseable {DATE_COL}.")
+
+    # Annualize salary so postings quoted per hour/week/month/bi-weekly/year
+    # are all directly comparable. ~1/3 of postings don't disclose salary at
+    # all (Salary Per, Salary Minimum, and Salary Maximum all missing
+    # together) — these correctly stay NaN rather than being fabricated.
+    if "Salary Minimum" in filtered.columns and "Salary Per" in filtered.columns:
+        filtered["Salary Min Annual"] = filtered.apply(lambda r: to_annual(r, "Salary Minimum"), axis=1)
+        filtered["Salary Max Annual"] = filtered.apply(lambda r: to_annual(r, "Salary Maximum"), axis=1)
 
     return filtered
 
